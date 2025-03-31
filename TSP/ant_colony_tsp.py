@@ -1,7 +1,5 @@
 import numpy as np
 
-
-
 class Ant:
     def __init__(self, alpha, beta, gamma, num_cities):
         self.alpha = alpha
@@ -15,17 +13,20 @@ class Ant:
     def choose_next_city(self, current_city, pheromones, distances):
         probabilities = []
         cities = []
+        
         for city in range(len(pheromones)):
-            if not self.visited[city]:
+            if not self.visited[city] and distances[current_city][city] > 0:
                 tau = pheromones[current_city][city] ** self.alpha
                 eta = (1 / distances[current_city][city]) ** self.beta
                 probabilities.append(tau * eta)
                 cities.append(city)
 
         if probabilities:
-            probabilities = np.array(probabilities) / sum(probabilities)
+            probabilities = np.array(probabilities) / sum(probabilities)  # Normalize probabilities
             return np.random.choice(cities, p=probabilities)
-        return None
+
+        return None  # If no valid city is left
+
 
     def travel(self, start_city, pheromones, distances):
         self.path = [start_city]
@@ -68,21 +69,50 @@ class Environment:
 
     def evaporate_pheromones(self):
         self.pheromones *= (1 - self.gamma)
-
-    def simulate(self, num_iterations):
+        
+        print(f"Pheromone matrix after evaporation:\n{self.pheromones}")
+    
+    def simulate(self, num_iterations, track_progress=False, patience = 20):
         best_distance = float('inf')
         best_path = None
-
-        for _ in range(num_iterations):
+        distance_progress = [] if track_progress else None
+        
+        no_improvement = 0
+    
+        for iteration in range(num_iterations):
+            pheromone_delta = np.zeros_like(self.pheromones)  # Temporary matrix for Δτij
+    
             for ant in self.ants:
+                ant.visited[:] = False  # Reset visited status
+                ant.path = []
+                ant.distance = 0  # Reset distance
+    
                 start_city = np.random.randint(self.num_cities)
                 ant.travel(start_city, self.pheromones, self.distances)
-                ant.deposit_pheromones(self.pheromones)
-
+    
+                if ant.distance > 0:
+                    for i in range(len(ant.path) - 1):
+                        pheromone_delta[ant.path[i]][ant.path[i + 1]] += 1 / ant.distance  # Δτij
+    
+                # Track best solution
                 if ant.distance < best_distance:
                     best_distance = ant.distance
                     best_path = ant.path[:]
-
-            self.evaporate_pheromones()
-
-        return best_path, best_distance
+                    no_improvement = 0
+                else:
+                    no_improvement += 1
+    
+            # Update pheromones globally at the end of iteration
+            self.pheromones = (self.pheromones * 0.9) + pheromone_delta  # τij(t+n) = ρ.τij(t) + Δτij
+    
+            if track_progress:
+                distance_progress.append(best_distance)
+            
+            if no_improvement >= patience:
+                print(f"No improvement for {patience}, stopping the algorithm")
+                break
+    
+        if track_progress:
+            return best_path, best_distance, distance_progress
+        else:
+            return best_path, best_distance
